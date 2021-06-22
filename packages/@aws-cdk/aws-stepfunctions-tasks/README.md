@@ -133,6 +133,32 @@ const submitJob = new tasks.LambdaInvoke(this, 'Invoke Handler', {
 });
 ```
 
+### ResultSelector
+
+You can use [`ResultSelector`](https://docs.aws.amazon.com/step-functions/latest/dg/input-output-inputpath-params.html#input-output-resultselector)
+to manipulate the raw result of a Task, Map or Parallel state before it is
+passed to [`ResultPath`](###ResultPath). For service integrations, the raw
+result contains metadata in addition to the response payload. You can use
+ResultSelector to construct a JSON payload that becomes the effective result
+using static values or references to the raw result or context object.
+
+The following example extracts the output payload of a Lambda function Task and combines
+it with some static values and the state name from the context object.
+
+```ts
+new tasks.LambdaInvoke(this, 'Invoke Handler', {
+  lambdaFunction: fn,
+  resultSelector: {
+    lambdaOutput: sfn.JsonPath.stringAt('$.Payload'),
+    invokeRequestId: sfn.JsonPath.stringAt('$.SdkResponseMetadata.RequestId'),
+    staticValue: {
+      foo: 'bar',
+    },
+    stateName: sfn.JsonPath.stringAt('$$.State.Name'),
+  },
+})
+```
+
 ### ResultPath
 
 The output of a state can be a copy of its input, the result it produces (for
@@ -172,7 +198,7 @@ and invokes it asynchronously.
 ```ts
 const submitJob = new tasks.LambdaInvoke(this, 'Invoke Handler', {
   lambdaFunction: fn,
-  payload: sfn.TaskInput.fromDataAt('$.input'),
+  payload: sfn.TaskInput.fromJsonPathAt('$.input'),
   invocationType: tasks.LambdaInvocationType.EVENT,
 });
 ```
@@ -202,7 +228,7 @@ const createMessage = new tasks.EvaluateExpression(this, 'Create message', {
 
 const publishMessage = new tasks.SnsPublish(this, 'Publish message', {
   topic: new sns.Topic(this, 'cool-topic'),
-  message: sfn.TaskInput.fromDataAt('$.message'),
+  message: sfn.TaskInput.fromJsonPathAt('$.message'),
   resultPath: '$.sns',
 });
 
@@ -226,8 +252,8 @@ of the Node.js family are supported.
 
 Step Functions supports [API Gateway](https://docs.aws.amazon.com/step-functions/latest/dg/connect-api-gateway.html) through the service integration pattern.
 
-HTTP APIs are designed for low-latency, cost-effective integrations with AWS services, including AWS Lambda, and HTTP endpoints. 
-HTTP APIs support OIDC and OAuth 2.0 authorization, and come with built-in support for CORS and automatic deployments. 
+HTTP APIs are designed for low-latency, cost-effective integrations with AWS services, including AWS Lambda, and HTTP endpoints.
+HTTP APIs support OIDC and OAuth 2.0 authorization, and come with built-in support for CORS and automatic deployments.
 Previous-generation REST APIs currently offer more features. More details can be found [here](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-vs-rest.html).
 
 ### Call REST API Endpoint
@@ -507,8 +533,8 @@ isolation by design. Learn more about [Fargate](https://aws.amazon.com/fargate/)
 
 The Fargate launch type allows you to run your containerized applications without the need
 to provision and manage the backend infrastructure. Just register your task definition and
-Fargate launches the container for you. The latest ACTIVE revision of the passed 
-task definition is used for running the task. Learn more about 
+Fargate launches the container for you. The latest ACTIVE revision of the passed
+task definition is used for running the task. Learn more about
 [Fargate Versioning](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_DescribeTaskDefinition.html)
 
 The following example runs a job from a task definition on Fargate
@@ -588,7 +614,7 @@ autoScalingRole.assumeRolePolicy?.addStatements(
 new tasks.EmrCreateCluster(this, 'Create Cluster', {
   instances: {},
   clusterRole,
-  name: sfn.TaskInput.fromDataAt('$.ClusterName').value,
+  name: sfn.TaskInput.fromJsonPathAt('$.ClusterName').value,
   serviceRole,
   autoScalingRole,
 });
@@ -718,7 +744,7 @@ You can call the [`StartJobRun`](https://docs.aws.amazon.com/glue/latest/dg/aws-
 new tasks.GlueStartJobRun(this, 'Task', {
   glueJobName: 'my-glue-job',
   arguments: sfn.TaskInput.fromObject({
-    key: 'value',  
+    key: 'value',
   }),
   timeout: cdk.Duration.minutes(30),
   notifyDelayAfter: cdk.Duration.minutes(5),
@@ -772,7 +798,7 @@ new tasks.LambdaInvoke(this, 'Invoke with empty object as payload', {
 // use the output of fn as input
 new tasks.LambdaInvoke(this, 'Invoke with payload field in the state input', {
   lambdaFunction: fn,
-  payload: sfn.TaskInput.fromDataAt('$.Payload'),
+  payload: sfn.TaskInput.fromJsonPathAt('$.Payload'),
 });
 ```
 
@@ -859,7 +885,7 @@ new tasks.SageMakerCreateTrainingJob(this, 'TrainSagemaker', {
   },
   resourceConfig: {
     instanceCount: 1,
-    instanceType: ec2.InstanceType.of(ec2.InstanceClass.P3, ec2.InstanceSize.XLARGE2),
+    instanceType: new ec2.InstanceType(JsonPath.stringAt('$.InstanceType')),
     volumeSize: cdk.Size.gibibytes(50),
   }, // optional: default is 1 instance of EC2 `M4.XLarge` with `10GB` volume
   stoppingCondition: {
@@ -965,7 +991,7 @@ const topic = new sns.Topic(this, 'Topic');
 const task1 = new tasks.SnsPublish(this, 'Publish1', {
   topic,
   integrationPattern: sfn.IntegrationPattern.REQUEST_RESPONSE,
-  message: sfn.TaskInput.fromDataAt('$.state.message'),
+  message: sfn.TaskInput.fromJsonPathAt('$.state.message'),
 });
 
 // Combine a field from the execution data with
@@ -1020,7 +1046,7 @@ a specific task in a state machine.
 
 When Step Functions reaches an activity task state, the workflow waits for an
 activity worker to poll for a task. An activity worker polls Step Functions by
-using GetActivityTask, and sending the ARN for the related activity.  
+using GetActivityTask, and sending the ARN for the related activity.
 
 After the activity worker completes its work, it can provide a report of its
 success or failure by using `SendTaskSuccess` or `SendTaskFailure`. These two
@@ -1050,7 +1076,7 @@ const queue = new sqs.Queue(this, 'Queue');
 // Use a field from the execution data as message.
 const task1 = new tasks.SqsSendMessage(this, 'Send1', {
   queue,
-  messageBody: sfn.TaskInput.fromDataAt('$.message'),
+  messageBody: sfn.TaskInput.fromJsonPathAt('$.message'),
 });
 
 // Combine a field from the execution data with
